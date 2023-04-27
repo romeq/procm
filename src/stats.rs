@@ -1,29 +1,32 @@
 use owo_colors::OwoColorize;
 use size_format::SizeFormatterSI;
-use sysinfo::{Pid, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
+use sysinfo::{Pid, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt, CpuRefreshKind};
 
 pub fn show_resources_for_pid(pid: usize) -> Option<()> {
     let mut sys = System::new();
 
-    sys.refresh_specifics(
-        RefreshKind::new()
-            .with_processes(ProcessRefreshKind::everything())
-            .with_memory(),
-    );
+    let cpu_refresh_kind = RefreshKind::new()
+        .with_processes(ProcessRefreshKind::everything())
+        .with_cpu(CpuRefreshKind::everything());
+
+    // CPU has to be refreshed twice to get accurate result
+    sys.refresh_specifics(cpu_refresh_kind.with_memory());
+    std::thread::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL);
+    sys.refresh_specifics(cpu_refresh_kind);
 
     let process = sys.process(Pid::from(pid))?;
-    let disk_usage = process.disk_usage();
+    let cpu_count = sys.cpus().len();
+    let cpu_usage = process.cpu_usage();
 
-    println!(
-        "Memory: \t{}",
-        print_size_formatter(process.memory(), Some(sys.total_memory()))
-    );
-    println!("CPU (%): \t{:?}", process.cpu_usage().green());
-    println!(
-        "Disk (w, r): \t{}, {}",
+    println!("Memory: \t{}",
+        print_size_formatter(process.memory(), Some(sys.total_memory())));
+
+    println!("CPU (rel/abs): \t{:.4}% / {:.4}%", (cpu_usage / cpu_count as f32).green(), cpu_usage.green());
+
+    let disk_usage = process.disk_usage();
+    println!("Disk (w, r): \t{}, {}",
         SizeFormatterSI::new(disk_usage.total_written_bytes).green(),
-        SizeFormatterSI::new(disk_usage.total_read_bytes).green(),
-    );
+        SizeFormatterSI::new(disk_usage.total_read_bytes).green());
 
     Some(())
 }
